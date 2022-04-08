@@ -49,15 +49,44 @@ class Company {
    * Returns [{ handle, name, description, numEmployees, logoUrl }, ...]
    * */
 
-  static async findAll() {
-    const companiesRes = await db.query(
+  static async findAll(filters = {}) {
+    let query = 
           `SELECT handle,
                   name,
                   description,
                   num_employees AS "numEmployees",
                   logo_url AS "logoUrl"
-           FROM companies
-           ORDER BY name`);
+           FROM companies`
+    
+    let filterValues = [];
+    let expressions = [];
+    const { name, minEmployees, maxEmployees } = filters;
+
+    if(minEmployees > maxEmployees) {
+      throw new BadRequestError('Min employees can not greater than max employees')
+    }
+
+    if(name) {
+      filterValues.push(`%${name}%`)
+      expressions.push(`name ILIKE $${filterValues.length}`)
+    }
+
+    if(minEmployees !== undefined) {
+      filterValues.push(minEmployees)
+      expressions.push(`num_employees >= $${filterValues.length}`)
+    }
+
+    if(maxEmployees !== undefined) {
+      filterValues.push(maxEmployees)
+      expressions.push(`num_employees <= $${filterValues.length}`)
+    }
+
+    if(filterValues.length > 0) {
+      query += ' WHERE ' + expressions.join(' AND ');
+    }
+
+    query += ' ORDER BY name '
+    const companiesRes = await db.query(query, filterValues)
     return companiesRes.rows;
   }
 
@@ -83,6 +112,14 @@ class Company {
     const company = companyRes.rows[0];
 
     if (!company) throw new NotFoundError(`No company: ${handle}`);
+
+    const jobsRes = await db.query(`
+      SELECT id, title, salary, equity
+      FROM jobs
+      WHERE company_handle = $1
+      ORDER BY id`, [handle])
+
+    company.jobs = jobsRes.rows;
 
     return company;
   }
